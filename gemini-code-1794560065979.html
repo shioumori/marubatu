@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>○×罰ゲーム</title>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 20px;
+      touch-action: manipulation;
+    }
+    .container {
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 1.5rem;
+      letter-spacing: 0.1em;
+    }
+    .card {
+      background: #111111;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    label {
+      font-size: 0.85rem;
+      color: #aaaaaa;
+    }
+    input {
+      width: 100%;
+      background: #000000;
+      border: 1px solid #444444;
+      color: #ffffff;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+    }
+    input:focus {
+      border-color: #ffffff;
+    }
+    input[type="tel"] {
+      text-align: center;
+      font-size: 1.6rem;
+      letter-spacing: 0.3em;
+      font-weight: bold;
+    }
+    button {
+      width: 100%;
+      background: #ffffff;
+      color: #000000;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:active {
+      opacity: 0.7;
+    }
+    button.secondary {
+      background: #222222;
+      color: #ffffff;
+      border: 1px solid #444444;
+    }
+    .hidden { display: none !important; }
+    .room-code {
+      font-size: 2.8rem;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 0.25em;
+      padding: 10px 0;
+    }
+    .status {
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: bold;
+      min-height: 1.5em;
+    }
+    .penalty-box {
+      background: #1a0000;
+      border: 1px solid #550000;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 0.95rem;
+      color: #ff6666;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      aspect-ratio: 1 / 1;
+      width: 100%;
+    }
+    .cell {
+      background: #111111;
+      border: 1px solid #333333;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3rem;
+      font-weight: bold;
+      cursor: pointer;
+      user-select: none;
+    }
+    .cell.o { color: #00e5ff; }
+    .cell.x { color: #ff2a5f; }
+    .cell.win { background: #222222; border-color: #ffffff; }
+    .result-overlay {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .result-title {
+      font-size: 1.6rem;
+      font-weight: bold;
+    }
+    .lose-text { color: #ff2a5f; }
+    .win-text { color: #00e5ff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>○×罰ゲーム</h1>
+
+    <!-- ロビー画面 -->
+    <div id="lobby" class="card">
+      <label>罰ゲーム内容</label>
+      <input type="text" id="penaltyInput" value="変顔してスクショ撮られる" placeholder="罰ゲームを入力" />
+      <button onclick="createRoom()">部屋を作る（○）</button>
+      <hr style="border: 0; border-top: 1px solid #222; margin: 4px 0;">
+      <label>3桁の部屋コードで参加（×）</label>
+      <input type="tel" id="joinCodeInput" maxlength="3" placeholder="000" />
+      <button class="secondary" onclick="joinRoom()">参加する</button>
+      <div id="lobbyMsg" style="text-align:center; font-size:0.85rem; color:#ff6666;"></div>
+    </div>
+
+    <!-- 待機画面 -->
+    <div id="waiting" class="card hidden">
+      <div style="text-align:center; color:#aaa; font-size:0.9rem;">部屋コード</div>
+      <div id="displayRoomCode" class="room-code">---</div>
+      <div style="text-align:center; color:#aaa; font-size:0.85rem;">相手の参加を待っています...</div>
+      <button class="secondary" onclick="location.reload()">キャンセル</button>
+    </div>
+
+    <!-- ゲーム画面 -->
+    <div id="game" class="hidden" style="display:flex; flex-direction:column; gap:16px;">
+      <div class="penalty-box">罰ゲーム: <span id="activePenalty"></span></div>
+      <div id="turnStatus" class="status"></div>
+      <div id="board" class="board"></div>
+
+      <div id="resultBox" class="card hidden result-overlay">
+        <div id="resultTitle" class="result-title"></div>
+        <div id="resultDetail" style="font-size:0.95rem; color:#ccc;"></div>
+        <button id="rematchBtn" onclick="requestRematch()">もう一回</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PREFIX = "marubatsu-batsu-game-2026-";
+    let peer = null;
+    let conn = null;
+    let myMark = ""; // "O" or "X"
+    let turn = "O";
+    let board = Array(9).fill("");
+    let penalty = "";
+    let gameOver = false;
+
+    const WIN_PATTERNS = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+
+    function showScreen(id) {
+      ["lobby", "waiting", "game"].forEach(s => {
+        document.getElementById(s).classList.add("hidden");
+      });
+      document.getElementById(id).classList.remove("hidden");
+    }
+
+    function setMsg(msg) {
+      document.getElementById("lobbyMsg").textContent = msg;
+    }
+
+    // 部屋作成（ホスト = ○）
+    function createRoom() {
+      const code = String(Math.floor(100 + Math.random() * 900));
+      penalty = document.getElementById("penaltyInput").value.trim() || "デコピン1回";
+      myMark = "O";
+      setMsg("接続準備中...");
+
+      peer = new Peer(PREFIX + code);
+
+      peer.on("open", () => {
+        setMsg("");
+        document.getElementById("displayRoomCode").textContent = code;
+        showScreen("waiting");
+      });
+
+      peer.on("connection", (connection) => {
+        conn = connection;
+        setupConnection();
+        conn.on("open", () => {
+          conn.send({ type: "init", penalty });
+          startGame();
+        });
+      });
+
+      peer.on("error", (err) => {
+        if (err.type === "unavailable-id") {
+          peer.destroy();
+          createRoom(); // 番号被り時は再生成
+        } else {
+          setMsg("エラー: " + err.type);
+        }
+      });
+    }
+
+    // 部屋参加（ゲスト = ×）
+    function joinRoom() {
+      const code = document.getElementById("joinCodeInput").value.trim();
+      if (!/^\d{3}$/.test(code)) {
+        setMsg("3桁の数字を入力してください");
+        return;
+      }
+      myMark = "X";
+      setMsg("接続中...");
+
+      peer = new Peer();
+      peer.on("open", () => {
+        conn = peer.connect(PREFIX + code);
+        setupConnection();
+      });
+
+      peer.on("error", (err) => {
+        setMsg("部屋が見つかりません (" + err.type + ")");
+      });
+    }
+
+    function setupConnection() {
+      conn.on("data", (data) => {
+        if (data.type === "init") {
+          penalty = data.penalty;
+          startGame();
+        } else if (data.type === "move") {
+          applyMove(data.index, data.mark);
+        } else if (data.type === "rematch") {
+          resetGame();
+        }
+      });
+
+      conn.on("close", () => {
+        alert("相手との接続が切れました");
+        location.reload();
+      });
+    }
+
+    function startGame() {
+      document.getElementById("activePenalty").textContent = penalty;
+      showScreen("game");
+      resetGame();
+    }
+
+    function resetGame() {
+      board = Array(9).fill("");
+      turn = "O";
+      gameOver = false;
+      document.getElementById("resultBox").classList.add("hidden");
+      renderBoard();
+      updateStatus();
+    }
+
+    function renderBoard(winLine = []) {
+      const boardEl = document.getElementById("board");
+      boardEl.innerHTML = "";
+      board.forEach((val, idx) => {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        if (val === "O") {
+          cell.textContent = "○";
+          cell.classList.add("o");
+        } else if (val === "X") {
+          cell.textContent = "×";
+          cell.classList.add("x");
+        }
+        if (winLine.includes(idx)) {
+          cell.classList.add("win");
+        }
+        cell.onclick = () => onCellClick(idx);
+        boardEl.appendChild(cell);
+      });
+    }
+
+    function updateStatus() {
+      const statusEl = document.getElementById("turnStatus");
+      if (gameOver) {
+        statusEl.textContent = "試合終了";
+        return;
+      }
+      const markText = myMark === "O" ? "○" : "×";
+      if (turn === myMark) {
+        statusEl.textContent = `あなたの番です（${markText}）`;
+        statusEl.style.color = "#ffffff";
+      } else {
+        statusEl.textContent = `相手の番です...`;
+        statusEl.style.color = "#888888";
+      }
+    }
+
+    function onCellClick(idx) {
+      if (gameOver || turn !== myMark || board[idx] !== "") return;
+      applyMove(idx, myMark);
+      conn.send({ type: "move", index: idx, mark: myMark });
+    }
+
+    function applyMove(idx, mark) {
+      board[idx] = mark;
+      const winLine = checkWin(mark);
+
+      if (winLine) {
+        gameOver = true;
+        renderBoard(winLine);
+        updateStatus();
+        showResult(mark);
+        return;
+      }
+
+      if (!board.includes("")) {
+        gameOver = true;
+        renderBoard();
+        updateStatus();
+        showResult("DRAW");
+        return;
+      }
+
+      turn = turn === "O" ? "X" : "O";
+      renderBoard();
+      updateStatus();
+    }
+
+    function checkWin(mark) {
+      for (const pattern of WIN_PATTERNS) {
+        if (pattern.every(i => board[i] === mark)) {
+          return pattern;
+        }
+      }
+      return null;
+    }
+
+    function showResult(winner) {
+      const resultBox = document.getElementById("resultBox");
+      const titleEl = document.getElementById("resultTitle");
+      const detailEl = document.getElementById("resultDetail");
+      resultBox.classList.remove("hidden");
+
+      if (winner === "DRAW") {
+        titleEl.textContent = "引き分け";
+        titleEl.className = "result-title";
+        detailEl.textContent = "罰ゲームはなし！";
+      } else if (winner === myMark) {
+        titleEl.textContent = "あなたの勝ち！";
+        titleEl.className = "result-title win-text";
+        detailEl.textContent = `相手に「${penalty}」を実行させよう！`;
+      } else {
+        titleEl.textContent = "あなたの負け...";
+        titleEl.className = "result-title lose-text";
+        detailEl.textContent = `罰ゲーム執行：【${penalty}】`;
+      }
+    }
+
+    function requestRematch() {
+      conn.send({ type: "rematch" });
+      resetGame();
+    }
+  </script>
+</body>
+</html>
